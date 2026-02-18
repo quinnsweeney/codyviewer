@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
-import { generateParlays, formatAmericanOdds } from "@/lib/parlay";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { generateParlays, formatAmericanOdds, probToAmericanOdds, probToDecimalOdds, buildParlaySlip } from "@/lib/parlay";
 import type { Prediction, ParlaySlip } from "@/lib/types";
 
 interface ParlayBuilderProps {
@@ -14,11 +15,21 @@ interface ParlayBuilderProps {
 }
 
 export function ParlayBuilder({ predictions }: ParlayBuilderProps) {
+    // Compute the absolute odds range from the data
+    const oddsRange = useMemo(() => {
+        const absOdds = predictions.map((p) => {
+            const bestProb = p.homeWinPct >= 0.5 ? p.homeWinPct : 1 - p.homeWinPct;
+            return Math.abs(probToAmericanOdds(bestProb));
+        });
+        const min = Math.min(...absOdds);
+        const max = Math.max(...absOdds);
+        return { min, max };
+    }, [predictions]);
+
     const [numLegs, setNumLegs] = useState(3);
     const [minTotalOdds, setMinTotalOdds] = useState<string>("");
     const [maxTotalOdds, setMaxTotalOdds] = useState<string>("");
-    const [minPerLegOdds, setMinPerLegOdds] = useState<string>("");
-    const [maxPerLegOdds, setMaxPerLegOdds] = useState<string>("");
+    const [perLegRange, setPerLegRange] = useState<[number, number]>([oddsRange.min, oddsRange.max]);
     const [parlays, setParlays] = useState<ParlaySlip[]>([]);
     const [hasGenerated, setHasGenerated] = useState(false);
 
@@ -29,11 +40,32 @@ export function ParlayBuilder({ predictions }: ParlayBuilderProps) {
             numLegs,
             minTotalOdds: minTotalOdds ? parseInt(minTotalOdds, 10) : undefined,
             maxTotalOdds: maxTotalOdds ? parseInt(maxTotalOdds, 10) : undefined,
-            minPerLegOdds: minPerLegOdds ? parseInt(minPerLegOdds, 10) : undefined,
-            maxPerLegOdds: maxPerLegOdds ? parseInt(maxPerLegOdds, 10) : undefined,
+            minPerLegOdds: perLegRange[0],
+            maxPerLegOdds: perLegRange[1],
         };
         const results = generateParlays(predictions, options, 5);
         setParlays(results);
+        setHasGenerated(true);
+    }
+
+    function handleNathanMode() {
+        // Pick the FAVORED side of every game, then take the 5 with the worst (lowest) win probability
+        const favoriteLegs = predictions.map((p) => {
+            const isHomeFavorite = p.homeWinPct >= 0.5;
+            const winPct = isHomeFavorite ? p.homeWinPct : 1 - p.homeWinPct;
+            return {
+                prediction: p,
+                pick: (isHomeFavorite ? "home" : "away") as "home" | "away",
+                winPct,
+                americanOdds: probToAmericanOdds(winPct),
+                decimalOdds: probToDecimalOdds(winPct),
+            };
+        });
+        // Sort by lowest win probability first (worst favorites)
+        favoriteLegs.sort((a, b) => a.winPct - b.winPct);
+        const selected = favoriteLegs.slice(0, Math.min(5, favoriteLegs.length));
+        const slip = buildParlaySlip(selected);
+        setParlays([slip]);
         setHasGenerated(true);
     }
 
@@ -109,37 +141,58 @@ export function ParlayBuilder({ predictions }: ParlayBuilderProps) {
                                 Maximum combined American odds
                             </p>
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="minPerLegOdds">Min Per-Leg Odds</Label>
-                            <Input
-                                id="minPerLegOdds"
-                                type="number"
-                                placeholder="e.g. 100 for ±100"
-                                value={minPerLegOdds}
-                                onChange={(e) => setMinPerLegOdds(e.target.value)}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                Minimum absolute odds per leg
-                            </p>
+                    </div>
+
+                    <Separator />
+
+                    {/* Per-leg odds range slider */}
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <Label>Per-Leg Odds Range</Label>
+                            <div className="flex items-center gap-1.5">
+                                <Badge variant="secondary" className="font-mono">
+                                    {formatAmericanOdds(-perLegRange[0])}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">to</span>
+                                <Badge variant="secondary" className="font-mono">
+                                    {formatAmericanOdds(-perLegRange[1])}
+                                </Badge>
+                            </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="maxPerLegOdds">Max Per-Leg Odds</Label>
-                            <Input
-                                id="maxPerLegOdds"
-                                type="number"
-                                placeholder="e.g. 200 for ±200"
-                                value={maxPerLegOdds}
-                                onChange={(e) => setMaxPerLegOdds(e.target.value)}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                Maximum absolute odds per leg
-                            </p>
+                        <Slider
+                            value={perLegRange}
+                            onValueChange={(v) => setPerLegRange([v[0], v[1]])}
+                            min={oddsRange.min}
+                            max={oddsRange.max}
+                            step={1}
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>{formatAmericanOdds(-oddsRange.min)}</span>
+                            <span>{formatAmericanOdds(-oddsRange.max)}</span>
                         </div>
                     </div>
 
-                    <Button onClick={handleGenerate} className="w-full sm:w-auto">
-                        Generate Parlays
-                    </Button>
+                    <div className="flex gap-3 flex-wrap">
+                        <Button onClick={handleGenerate} className="w-full sm:w-auto">
+                            Generate Parlays
+                        </Button>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="destructive"
+                                        onClick={handleNathanMode}
+                                        className="w-full sm:w-auto"
+                                    >
+                                        Nathan Mode
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Builds a 5-leg parlay from the least confident favorites.</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
                 </CardContent>
             </Card>
 
