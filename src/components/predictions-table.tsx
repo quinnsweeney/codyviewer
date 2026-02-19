@@ -103,12 +103,7 @@ export function PredictionsTable({ predictions }: PredictionsTableProps) {
                                 <TableHead className="text-right whitespace-nowrap">
                                     ML Odds
                                 </TableHead>
-                                <TableHead
-                                    className="cursor-pointer select-none whitespace-nowrap text-right"
-                                    onClick={() => handleSort("impliedHomeSpread")}
-                                >
-                                    Spread{sortIndicator("impliedHomeSpread")}
-                                </TableHead>
+
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -128,7 +123,10 @@ export function PredictionsTable({ predictions }: PredictionsTableProps) {
                                             <span className="font-medium">{p.homeTeam}</span>
                                         </TableCell>
                                         <TableCell className="font-semibold">
-                                            {predictedWinner}
+                                            {predictedWinner}{" "}
+                                            <span className="text-muted-foreground font-normal">
+                                                (-{Math.abs(p.impliedHomeSpread)})
+                                            </span>
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <Badge variant={winPctBadgeVariant(winPct)}>
@@ -138,9 +136,7 @@ export function PredictionsTable({ predictions }: PredictionsTableProps) {
                                         <TableCell className="text-right font-mono text-sm">
                                             {formatAmericanOdds(odds)}
                                         </TableCell>
-                                        <TableCell className="text-right font-mono text-sm">
-                                            {p.impliedHomeSpread > 0 ? `-${p.impliedHomeSpread}` : `+${Math.abs(p.impliedHomeSpread)}`}
-                                        </TableCell>
+
                                     </TableRow>
                                 );
                             })}
